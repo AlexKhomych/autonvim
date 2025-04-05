@@ -257,10 +257,9 @@ func (t *NeovimDotTask) Run() error {
 	if err := t.th.GitClone(cfg.url, cfg.tmpDir, cfg.isSudo); err != nil {
 		return FPrefixError(t.Name, err.Error())
 	}
-	if err := os.MkdirAll(dstPath, os.ModePerm); err != nil {
-		slog.Error(err.Error(), "task_name", t.Name)
-		return FPrefixError(t.Name, "failed to create directory")
-	}
+  if err := FCreateDir(dstPath); err != nil {
+    return FPrefixError(t.Name, err.Error())
+  }
 
 	for _, subpath := range cfg.subpaths {
 		src := filepath.Join(cfg.tmpDir, "nvim", subpath)

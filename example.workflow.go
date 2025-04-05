@@ -1,26 +1,45 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
-	HomePath   string = "/home/alex/"
-	ShrcPath   string = "/home/alex/.zshrc"
+	HomePath string = "/home/alex/"
+	ShrcPath string = "/home/alex/.zshrc"
 
 	OhMyZshURL string = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
 	GolangURL  string = "https://go.dev/dl/go1.24.1.linux-amd64.tar.gz"
 	NvmURL     string = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh"
+	NvimURL    string = "https://github.com/neovim/neovim/releases/download/v0.10.4/nvim-linux-x86_64.tar.gz"
 	NvimLSPURL string = "https://github.com/neovim/nvim-lspconfig"
 	NvimDotURL string = "https://github.com/AlexKhomych/neovim-dot.git"
+
+	NvimPath       string = "export PATH=$PATH:/home/alex/.local/share/nvim-linux-x86_64/bin\n"
+	GolangPath     string = "export PATH=$PATH:/home/alex/.local/share/go/bin:/home/alex/go/bin\n"
+	TypescriptPath string = "export NVM_DIR=\"$HOME/.nvm\"\n[ -s \"$NVM_DIR/nvm.sh\" ] && \\. \"$NVM_DIR/nvm.sh\"  # This loads nvm\n[ -s \"$NVM_DIR/bash_completion\" ] && \\. \"$NVM_DIR/bash_completion\"  # This loads nvm bash_completion\n"
+)
+
+var (
+	Packages = map[string]string{
+		"curl":             "",
+		"htop":             "",
+		"vim":              "",
+		"zsh":              "",
+		"git":              "",
+		"build-essentials": "",
+		"ripgrep":          "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep_14.1.0-1_amd64.deb",
+	}
 )
 
 func ExampleRun() {
 	clear, tmpDir := CreateTempDir()
 	defer clear()
 
-	check(Package(tmpDir))
+	check(InstallPackages(tmpDir))
 	check(OhMyZsh(tmpDir))
 	check(Neovim(tmpDir))
 	check(NeovimLSP())
@@ -29,37 +48,59 @@ func ExampleRun() {
 	check(DotConfig(tmpDir))
 }
 
-func Package(tmpDir string) error {
-	downloadConfig := DownloadConfig{
-		url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep_14.1.0-1_amd64.deb",
-		path: Path{
-			path:    tmpDir,
-			subpath: "ripgrep_14.1.0-1_amd64.deb",
-		},
-	}
-	downloadTask := DownloadTask{
-		BaseTask: BaseTask{
-			Name:   "DownloadTask",
-			Config: downloadConfig,
-		},
+func InstallPackages(tmpDir string) error {
+	install := func(name, url, dname string) error {
+		downloadConfig := DownloadConfig{
+			url: url,
+			path: Path{
+				path:    tmpDir,
+				subpath: dname,
+			},
+		}
+		downloadTask := DownloadTask{
+			BaseTask: BaseTask{
+				Name:   "DownloadTask" + " " + name,
+				Config: downloadConfig,
+			},
+		}
+
+		if err := downloadTask.Validate(); err != nil {
+			return err
+		}
+		if err := downloadTask.Run(); err != nil {
+			return err
+		}
+
+		config := InstallPackageConfig{
+			name:   name,
+			path:   downloadConfig.path.Join(),
+			isSudo: true,
+		}
+		task := InstallPackageTask{
+			BaseTask: BaseTask{
+				Config: config,
+				Name:   "InstallPackage" + " " + name,
+			},
+		}
+		if err := task.Validate(); err != nil {
+			return err
+		}
+		if err := task.Run(); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
-	check(downloadTask.Validate())
-	check(downloadTask.Run())
-
-	config := InstallPackageConfig{
-		name:   "ripgrep",
-		path:   downloadConfig.path.Join(),
-		isSudo: true,
+	for pkgName, pkgURL := range Packages {
+		idx := strings.LastIndexByte(pkgURL, '/')
+		if len(pkgURL) > 0 && idx == -1 {
+			return fmt.Errorf("not supported url: %s", pkgURL)
+		}
+		if err := install(pkgName, pkgURL, pkgURL[idx:]); err != nil {
+			return err
+		}
 	}
-	task := InstallPackageTask{
-		BaseTask: BaseTask{
-			Config: config,
-			Name:   "InstallPackage",
-		},
-	}
-	check(task.Validate())
-	check(task.Run())
 
 	return nil
 }
@@ -70,13 +111,13 @@ func Neovim(tmpDir string) error {
 			path:    tmpDir,
 			subpath: "nvim-linux-x86_64.tar.gz",
 		},
-		url:    "https://github.com/neovim/neovim/releases/download/v0.10.4/nvim-linux-x86_64.tar.gz",
+		url:    NvimURL,
 		isSudo: false,
 	}
 
 	downloadTask := DownloadTask{
 		BaseTask: BaseTask{
-			Name:   "DownloadTask",
+			Name:   "DownloadTask Neovim",
 			Config: downloadConfig,
 		},
 	}
@@ -91,7 +132,7 @@ func Neovim(tmpDir string) error {
 		},
 		shrc: ShrcConfig{
 			path:    ShrcPath,
-			content: "export PATH=$PATH:/home/alex/.local/share/nvim-linux-x86_64/bin\n",
+			content: NvimPath,
 		},
 		tarPath: downloadConfig.path.Join(),
 		isSudo:  false,
@@ -245,7 +286,7 @@ func Golang(tmpDir string) error {
 
 	downloadTask := DownloadTask{
 		BaseTask: BaseTask{
-			Name:   "DownloadTask",
+			Name:   "DownloadTask Golang",
 			Config: downloadConfig,
 		},
 	}
@@ -261,7 +302,7 @@ func Golang(tmpDir string) error {
 		tarPath: filepath.Join(tmpDir, "go1.24.1.linux-amd64.tar.gz"),
 		shrc: ShrcConfig{
 			path:    ShrcPath,
-			content: "export PATH=$PATH:/home/alex/.local/share/go/bin:/home/alex/go/bin\n",
+			content: GolangPath,
 		},
 		isSudo: false,
 	}
@@ -301,7 +342,7 @@ func Typescript(tmpDir string) error {
 
 	downloadTask := DownloadTask{
 		BaseTask: BaseTask{
-			Name:   "DownloadTask",
+			Name:   "DownloadTask Typescript",
 			Config: downloadConfig,
 		},
 	}
@@ -315,7 +356,7 @@ func Typescript(tmpDir string) error {
 		homePath:       HomePath,
 		shrc: ShrcConfig{
 			path:    ShrcPath,
-			content: "export NVM_DIR=\"$HOME/.nvm\"\n[ -s \"$NVM_DIR/nvm.sh\" ] && \\. \"$NVM_DIR/nvm.sh\"  # This loads nvm\n[ -s \"$NVM_DIR/bash_completion\" ] && \\. \"$NVM_DIR/bash_completion\"  # This loads nvm bash_completion\n",
+			content: TypescriptPath,
 		},
 		isSudo: false,
 	}
